@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"name": "240323-180646-esp32dev",
+			"path": "../../240323-180646-esp32dev"
+		},
+		{
+			"name": "SensorBoard",
+			"path": ".."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"algorithm": "cpp",
+			"random": "cpp"
+		}
+	}
+}

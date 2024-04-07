@@ -4,8 +4,8 @@
 
 #include <Wire.h>
 
-#include "MPU9250/MPU9250RegisterMap.h"
-#include "MPU9250/QuaternionFilter.h"
+#include "MPU9250RegisterMap.h"
+#include "QuaternionFilter.h"
 
 enum class ACCEL_FS_SEL {
     A2G,

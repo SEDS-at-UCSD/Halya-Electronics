@@ -2,9 +2,7 @@
 #include <Arduino.h>
 enum class LaunchState{
     PreIgnition,
-    Ignition,
-    Apogee,
-    steadyDescent,
+    Ignition_to_Apogee,
     Thousand_ft,
     Descent,
     Touchdown,

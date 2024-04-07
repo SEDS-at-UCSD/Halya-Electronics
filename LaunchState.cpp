@@ -5,7 +5,7 @@
 #include "MPU9250.h"
 
 LaunchState current_state = LaunchState::PreIgnition;
-const int READINGS_LENGTH = 10;
+const int READINGS_LENGTH = 15;
 double rate_of_change;
 double AltArray[READINGS_LENGTH];
 int count = 0;
@@ -24,16 +24,16 @@ void HalyaStateMachine(SixDOF &_6DOF, PHT &alt, MPU9250 &mpu) {
 
 
         case LaunchState::PreIgnition:
-            while(!_6DOF.check_IGNITABLE()){
+            while(!_6DOF.check_IGNITABLE()){    //ignitable ALSO determined by CAN
                 delay(4000); //long delay to not waste power
             }
             Serial.println("halya ignition!");
-            current_state = LaunchState::Ignition;
+            current_state = LaunchState::Ignition_to_Apogee;
             break;
 
-//**IGNITION STAGE SEEMS REDUNDANT, combine with preignition state
 
-        case LaunchState::Ignition:                  
+        case LaunchState::Ignition_to_Apogee:
+            Serial.println("halya ignition!");
             //fill AltArray and check rate of change
             if (count < READINGS_LENGTH) {
                 AltArray[count] = alt.getAltitude();
@@ -46,35 +46,33 @@ void HalyaStateMachine(SixDOF &_6DOF, PHT &alt, MPU9250 &mpu) {
                 AltArray[READINGS_LENGTH - 1] = alt.getAltitude(); //does altitude update in the loop? I think that it would just set everything in AltArray to the same value
                 rate_of_change = returnAverage(AltArray, READINGS_LENGTH);
             }
-            Serial.println("halya ignition!");
-            current_state = LaunchState::Apogee;
-            break;
-
-        case LaunchState::Apogee :
             if(rate_of_change < 0){
                 // digitalWrite(igniter1, HIGH);
-                delay(1000);
+                // delay(300);
+                // digitalWrite(igniter1, LOW);
+                Serial.println("Halya has reached apogee!");
             }
-            Serial.println("halya has reached apogee!");
-            current_state = LaunchState::steadyDescent;
-            break;
-
-        case LaunchState::steadyDescent :
-            //will make method later, but
+            delay(100); //15 x 100ms means approximately 1.5 seconds after apogee, we should deploy our parachute.
+            
             current_state = LaunchState::Thousand_ft;
             break;
 
-        case LaunchState::Thousand_ft :
-            if(alt.getAltitude() == 1000) {
+
+        case LaunchState::Thousand_ft:
+            if(alt.getAltitude() <= 1000) {
                 // digitalWrite(igniter2, HIGH);
                 Serial.println("Ignition 2 occured");
                 }
             current_state = LaunchState::Descent;
             break;
-        case LaunchState::Descent :
+
+
+        case LaunchState::Descent:
             // print sensor data?
             current_state = LaunchState::Touchdown;
             break;
+
+
         case LaunchState::Touchdown :
             //print gps readings
             break;

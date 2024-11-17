@@ -11,8 +11,10 @@ public:
   GPS();
   void startGPS();
   void printInfo();
+  bool readingCheck();
   double convertToDegrees(int32_t coordinate);
   uint8_t extraPrecision(double coordinate);
   String representAsCoordinates(uint8_t latitude_integer, uint8_t latitude_decimal, uint8_t latitude_precision, uint8_t longitude_integer, uint8_t longitude_decimal, uint8_t longitude_precision);
+  double getAltitude();
 };
 #endif

@@ -1,28 +1,43 @@
-#include "Arduino.h"
-#include <Adafruit_LSM6DSOX.h>
-#include <Adafruit_LSM6DS.h>
+// Basic demo for accelerometer & gyro readings from Adafruit
+// LSM6DSO32 sensor
 #include "SixDOF.h"
-#include <Adafruit_Sensor.h>
-#include "QuaternionFilter.h"
-#define LSM_CS 35
-#define LSM_SCK 36
-#define LSM_MISO 37 // SDO
-#define LSM_MOSI 38 // SDA
+// For SPI mode, we need a CS pin
+#define LSM_CS 10
+// For software-SPI mode we need SCK/MOSI/MISO pins
+#define LSM_SCK 13
+#define LSM_SDO 12
+#define LSM_SDA 11
+
 bool IGNITABLE = false;
 double Net_Accel;
-QuaternionFilter filter;
+const double GRAVITY = 9.81;
+double deltaTime = 0.01;
+
+bool apogeeReached = false;
+double vertical_velocity = 0.0;
+double vertical_position = 0.0;
+double previous_vertical_velocity = 0.0;
+double previous_altitude = 0.0;
+
+double velocity_x = 0.0;
+double velocity_y = 0.0;
+double velocity_z = 0.0;
+
+double position_x = 0.0;
+double position_y = 0.0;
+double position_z = 0.0;
+
+Adafruit_LSM6DSOX dso32;
 
 SixDOF::SixDOF()
 {
 }
 
-Adafruit_LSM6DSOX Sensor = Adafruit_LSM6DSOX();
-
 // Function definition
 bool SixDOF::start_6DOF()
 {
   Serial.println("Adafruit LSM6DSOX test!");
-  if (!Sensor.begin_SPI(LSM_CS, LSM_SCK, LSM_MISO, LSM_MOSI))
+  if (!dso32.begin_SPI(LSM_CS, LSM_SCK, LSM_SDO, LSM_SDA))
   {
     Serial.println("Failed to find LSM6DSOX chip");
     return (false);
@@ -37,7 +52,7 @@ String SixDOF::printSensorData()
   sensors_event_t accel1;
   sensors_event_t gyro1;
   sensors_event_t temp1;
-  Sensor.getEvent(&accel1, &gyro1, &temp1);
+  dso32.getEvent(&accel1, &gyro1, &temp1);
   double Ax = accel1.acceleration.x;
   double Ay = accel1.acceleration.y;
   double Az = accel1.acceleration.z;
@@ -49,6 +64,42 @@ vector<double> SixDOF::getAcceleration()
 {
   sensors_event_t accel1;
   return {accel1.acceleration.x, accel1.acceleration.y, accel1.acceleration.z};
+}
+
+double SixDOF::updateVerticalVelocity()
+{
+  std::vector<double> accelData = getAcceleration();
+  double accelZ = accelData[2];
+
+  vertical_velocity += accelZ * deltaTime;
+
+  if (vertical_velocity < 0 && previous_vertical_velocity >= 0 && !apogeeReached)
+  {
+    apogeeReached = true;
+    Serial.println("Apogee reached!");
+  }
+
+  previous_vertical_velocity = vertical_velocity;
+
+  Serial.print("Vertical Velocity: ");
+  Serial.print(vertical_velocity);
+  Serial.println(" m/s");
+
+  return vertical_velocity;
+}
+
+double SixDOF::updateVerticalAltitude()
+{
+  // Update vertical position based on the current velocity
+  vertical_position += vertical_velocity * deltaTime;
+
+  previous_altitude = vertical_position;
+
+  Serial.print("Altitude: ");
+  Serial.print(vertical_position);
+  Serial.println(" m");
+
+  return vertical_position;
 }
 
 vector<double> SixDOF::getGyro()
@@ -65,7 +116,7 @@ bool SixDOF::_init(int32_t sensor_id)
 bool SixDOF::check_IGNITABLE()
 { // is there a way to use switch-cases here? Idk how to make cases for all values >10
   Serial.print("    Net Acceleration: " + String(Net_Accel) + ", ");
-  if (Net_Accel > 10)
+  if (Net_Accel > 68.6)
   {
     IGNITABLE = true;
   }
@@ -80,23 +131,43 @@ bool SixDOF::check_IGNITABLE()
   }
   return IGNITABLE;
 }
-
-// need to call manually in main.cpp file
-void SixDOF::updateQuaternionFilter()
+bool SixDOF::checkReadings()
 {
   vector<double> accelData = getAcceleration();
   vector<double> gyroData = getGyro();
-
-  double gyroX = gyroData[0];
-  double gyroY = gyroData[1];
-  double gyroZ = gyroData[2];
-
-  double accelX = accelData[0];
-  double accelY = accelData[1];
-  double accelZ = accelData[2];
-
-  filter.update(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, 0, 0, 0, quaternion);
+  for (int i = 0; i < accelData.size(); i++)
+  {
+    if (accelData[i] != 0)
+    {
+      return true;
+    }
+  }
+  for (int i = 0; i < gyroData.size(); i++)
+  {
+    if (gyroData[i] != 0)
+    {
+      return true;
+    }
+  }
+  return false;
 }
+
+// need to call manually in main.cpp file
+// void SixDOF::updateQuaternionFilter()
+// {
+//   vector<double> accelData = getAcceleration();
+//   vector<double> gyroData = getGyro();
+
+//   double gyroX = gyroData[0];
+//   double gyroY = gyroData[1];
+//   double gyroZ = gyroData[2];
+
+//   double accelX = accelData[0];
+//   double accelY = accelData[1];
+//   double accelZ = accelData[2];
+
+//   filter.update(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, 0, 0, 0, quaternion);
+// }
 
 vector<double> SixDOF::quaternionToEuler()
 {
@@ -108,4 +179,50 @@ vector<double> SixDOF::quaternionToEuler()
   float pitch = asin(2 * (y * w - z * x));
   float yaw = atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
   return {static_cast<double>(roll), static_cast<double>(pitch), static_cast<double>(yaw)};
+}
+
+void SixDOF::updateVelocities()
+{
+  // Get acceleration data
+  std::vector<double> accelData = getAcceleration();
+  double accelX = accelData[0];
+  double accelY = accelData[1];
+  double accelZ = accelData[2];
+
+  velocity_x += accelX * deltaTime;
+  velocity_y += accelY * deltaTime;
+  velocity_z += accelZ * deltaTime;
+
+  Serial.print("Velocity X: ");
+  Serial.print(velocity_x);
+  Serial.print(" m/s, Velocity Y: ");
+  Serial.print(velocity_y);
+  Serial.print(" m/s, Velocity Z: ");
+  Serial.print(velocity_z);
+  Serial.println(" m/s");
+}
+
+void SixDOF::updatePositions()
+{
+  position_x += velocity_x * deltaTime;
+  position_y += velocity_y * deltaTime;
+  position_z += velocity_z * deltaTime;
+
+  Serial.print("Position X: ");
+  Serial.print(position_x);
+  Serial.print(" m, Position Y: ");
+  Serial.print(position_y);
+  Serial.print(" m, Position Z: ");
+  Serial.print(position_z);
+  Serial.println(" m");
+}
+
+vector<double> SixDOF::getPositions()
+{
+  return {position_x, position_y, position_z};
+}
+
+vector<double> SixDOF::getVelocities()
+{
+  return {velocity_x, velocity_y, velocity_z};
 }

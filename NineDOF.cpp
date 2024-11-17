@@ -1,0 +1,229 @@
+#include <Adafruit_ICM20948.h>
+#include "NineDOF.h"
+
+#define LSM_CS 1
+#define LSM_SCK 2
+#define LSM_MISO 3
+#define LSM_MOSI 4
+
+Adafruit_ICM20948 icm;
+
+bool IGNITABLE = false;
+double Net_Accel;
+const double GRAVITY = 9.81;
+double deltaTime = 0.01;
+
+bool apogeeReached = false;
+double vertical_velocity = 0.0;
+double vertical_position = 0.0;
+double previous_vertical_velocity = 0.0;
+double previous_altitude = 0.0;
+
+double velocity_x = 0.0;
+double velocity_y = 0.0;
+double velocity_z = 0.0;
+
+double position_x = 0.0;
+double position_y = 0.0;
+double position_z = 0.0;
+
+NineDOF::NineDOF()
+{
+}
+
+Adafruit_ICM20948 icm = Adafruit_ICM20948();
+
+// Function definition
+bool NineDOF::start_9DOF()
+{
+    Serial.println("Adafruit ICM20948 test!");
+    if (!icm.begin_SPI(LSM_CS, LSM_SCK, LSM_MISO, LSM_MOSI))
+    {
+        Serial.println("Failed to find ICM20948 chip");
+        return (false);
+    }
+    Serial.println("ICM20948 Found!");
+    return true;
+}
+
+// Optional function definition (if needed in SixDOF.h)
+String NineDOF::printSensorData()
+{
+    sensors_event_t accel1;
+    sensors_event_t gyro1;
+    sensors_event_t temp1;
+    sensors_event_t mag1;
+    icm.getEvent(&accel1, &gyro1, &temp1, &mag1);
+    double Ax = accel1.acceleration.x;
+    double Ay = accel1.acceleration.y;
+    double Az = accel1.acceleration.z;
+    Net_Accel = sqrt((pow(Ax, 2) + pow(Ay, 2) + pow(Az, 2)));
+    return "(9DOF)" + String(Ax) + "," + String(Ay) + "," + String(Az) + "," + String(gyro1.gyro.x) + "," + String(gyro1.gyro.y) + "," + String(gyro1.gyro.z) + "," + String(mag1.magnetic.x) + "," + String(mag1.magnetic.y) + "," + String(mag1.magnetic.z) + "\n";
+}
+
+vector<double> NineDOF::getAcceleration()
+{
+    sensors_event_t accel1;
+    sensors_event_t gyro1;
+    sensors_event_t temp1;
+    sensors_event_t mag1;
+    icm.getEvent(&accel1, &gyro1, &temp1, &mag1);
+    return {accel1.acceleration.x, accel1.acceleration.y, accel1.acceleration.z};
+}
+vector<double> NineDOF::getMag()
+{
+    sensors_event_t accel1;
+    sensors_event_t gyro1;
+    sensors_event_t temp1;
+    sensors_event_t mag1;
+    icm.getEvent(&accel1, &gyro1, &temp1, &mag1);
+    return {mag1.magnetic.x, mag1.magnetic.y, mag1.magnetic.z};
+}
+double NineDOF::updateVerticalVelocity()
+{
+    std::vector<double> accelData = getAcceleration();
+    double accelZ = accelData[2];
+
+    vertical_velocity += accelZ * deltaTime;
+
+    if (vertical_velocity < 0 && previous_vertical_velocity >= 0 && !apogeeReached)
+    {
+        apogeeReached = true;
+        Serial.println("Apogee reached!");
+    }
+
+    previous_vertical_velocity = vertical_velocity;
+
+    Serial.print("Vertical Velocity: ");
+    Serial.print(vertical_velocity);
+    Serial.println(" m/s");
+
+    return vertical_velocity;
+}
+
+double NineDOF::updateVerticalAltitude()
+{
+    // Update vertical position based on the current velocity
+    vertical_position += vertical_velocity * deltaTime;
+
+    previous_altitude = vertical_position;
+
+    Serial.print("Altitude: ");
+    Serial.print(vertical_position);
+    Serial.println(" m");
+
+    return vertical_position;
+}
+
+vector<double> NineDOF::getGyro()
+{
+    sensors_event_t gyro1;
+    return {static_cast<double>(gyro1.gyro.x), static_cast<double>(gyro1.gyro.y), static_cast<double>(gyro1.gyro.z)};
+}
+
+bool NineDOF::_init(int32_t sensor_id)
+{
+    return true; // Example return value, modify as needed
+}
+
+bool NineDOF::check_IGNITABLE()
+{ // is there a way to use switch-cases here? Idk how to make cases for all values >10
+    Serial.print("    Net Acceleration: " + String(Net_Accel) + ", ");
+    if (Net_Accel > 68.6)
+    {
+        IGNITABLE = true;
+    }
+    else
+    {
+        switch (int(Net_Accel))
+        {
+        default:
+            return IGNITABLE;
+            break;
+        }
+    }
+    return IGNITABLE;
+}
+bool NineDOF::checkReadings()
+{
+    vector<double> accelData = getAcceleration();
+    vector<double> gyroData = getGyro();
+    for (int i = 0; i < accelData.size(); i++)
+    {
+        if (accelData[i] != 0)
+        {
+            return true;
+        }
+    }
+    for (int i = 0; i < gyroData.size(); i++)
+    {
+        if (gyroData[i] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// need to call manually in main.cpp file
+// void SixDOF::updateQuaternionFilter()
+// {
+//   vector<double> accelData = getAcceleration();
+//   vector<double> gyroData = getGyro();
+
+//   double gyroX = gyroData[0];
+//   double gyroY = gyroData[1];
+//   double gyroZ = gyroData[2];
+
+//   double accelX = accelData[0];
+//   double accelY = accelData[1];
+//   double accelZ = accelData[2];
+
+//   filter.update(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, 0, 0, 0, quaternion);
+// }
+
+void NineDOF::updateVelocities()
+{
+    // Get acceleration data
+    std::vector<double> accelData = getAcceleration();
+    double accelX = accelData[0];
+    double accelY = accelData[1];
+    double accelZ = accelData[2];
+
+    velocity_x += accelX * deltaTime;
+    velocity_y += accelY * deltaTime;
+    velocity_z += accelZ * deltaTime;
+
+    Serial.print("Velocity X: ");
+    Serial.print(velocity_x);
+    Serial.print(" m/s, Velocity Y: ");
+    Serial.print(velocity_y);
+    Serial.print(" m/s, Velocity Z: ");
+    Serial.print(velocity_z);
+    Serial.println(" m/s");
+}
+
+void NineDOF::updatePositions()
+{
+    position_x += velocity_x * deltaTime;
+    position_y += velocity_y * deltaTime;
+    position_z += velocity_z * deltaTime;
+
+    Serial.print("Position X: ");
+    Serial.print(position_x);
+    Serial.print(" m, Position Y: ");
+    Serial.print(position_y);
+    Serial.print(" m, Position Z: ");
+    Serial.print(position_z);
+    Serial.println(" m");
+}
+
+vector<double> NineDOF::getPositions()
+{
+    return {position_x, position_y, position_z};
+}
+
+vector<double> NineDOF::getVelocities()
+{
+    return {velocity_x, velocity_y, velocity_z};
+}

@@ -103,6 +103,17 @@ void GPS::printInfo()
   }
   // Serial.println();
 }
+
+// write a more comprehensive funciton
+bool GPS::readingCheck()
+{
+  if (GPS_1.altitude == 0)
+  {
+    return false;
+  }
+  return true;
+}
+
 double GPS::convertToDegrees(int32_t coordinate)
 {
   // dd mm.mmmm
@@ -143,4 +154,9 @@ String GPS::representAsCoordinates(uint8_t latitude_integer, uint8_t latitude_de
   double longitudePrecision = static_cast<double>(longitude_precision);
 
   return static_cast<String>(latitudeIntegerResult + 0.01 * latitudeFractionResult + 0.0001 * latitudePrecision) + "N, " + static_cast<String>(longitudeIntegerResult + longitudeFractionResult * 0.01 + longitudePrecision * 0.0001) + "W";
+}
+
+double GPS::getAltitude()
+{
+  return GPS_1.altitude;
 }

@@ -1,17 +1,20 @@
 // Basic demo for accelerometer & gyro readings from Adafruit
 // LSM6DSO32 sensor
 #include "SixDOF.h"
+#include <Adafruit_LSM6DSO32.h>
+#include "KalmanFilter.h"
+#include <SimpleKalmanFilter.h>
 // For SPI mode, we need a CS pin
-#define LSM_CS 10
+#define LSM_CS 39
 // For software-SPI mode we need SCK/MOSI/MISO pins
-#define LSM_SCK 13
-#define LSM_SDO 12
-#define LSM_SDA 11
+#define LSM_SCK 37
+#define LSM_SDO 35
+#define LSM_SDA 36
 
 bool IGNITABLE = false;
 double Net_Accel;
 const double GRAVITY = 9.81;
-double deltaTime = 0.01;
+double deltaTime = 0.1; // adjust based on delay
 
 bool apogeeReached = false;
 double vertical_velocity = 0.0;
@@ -27,7 +30,15 @@ double position_x = 0.0;
 double position_y = 0.0;
 double position_z = 0.0;
 
-Adafruit_LSM6DSOX dso32;
+double pitch = 0.0;
+double roll = 0.0;
+double yaw = 0.0;
+unsigned long lastUpdateTime = 0;
+
+Adafruit_LSM6DSO32 dso32;
+SimpleKalmanFilter accelXFilter(1, 1, 0.1);
+SimpleKalmanFilter accelYFilter(1, 1, 0.1);
+SimpleKalmanFilter accelZFilter(1, 1, 0.1);
 
 SixDOF::SixDOF()
 {
@@ -63,6 +74,9 @@ String SixDOF::printSensorData()
 vector<double> SixDOF::getAcceleration()
 {
   sensors_event_t accel1;
+  sensors_event_t gyro1;
+  sensors_event_t temp1;
+  dso32.getEvent(&accel1, &gyro1, &temp1);
   return {accel1.acceleration.x, accel1.acceleration.y, accel1.acceleration.z};
 }
 
@@ -73,11 +87,11 @@ double SixDOF::updateVerticalVelocity()
 
   vertical_velocity += accelZ * deltaTime;
 
-  if (vertical_velocity < 0 && previous_vertical_velocity >= 0 && !apogeeReached)
-  {
-    apogeeReached = true;
-    Serial.println("Apogee reached!");
-  }
+  // if (vertical_velocity < 0 && previous_vertical_velocity >= 0 && !apogeeReached)
+  // {
+  //   apogeeReached = true;
+  //   Serial.println("Apogee reached!");
+  // }
 
   previous_vertical_velocity = vertical_velocity;
 
@@ -104,7 +118,10 @@ double SixDOF::updateVerticalAltitude()
 
 vector<double> SixDOF::getGyro()
 {
+  sensors_event_t accel1;
   sensors_event_t gyro1;
+  sensors_event_t temp1;
+  dso32.getEvent(&accel1, &gyro1, &temp1);
   return {static_cast<double>(gyro1.gyro.x), static_cast<double>(gyro1.gyro.y), static_cast<double>(gyro1.gyro.z)};
 }
 
@@ -169,22 +186,23 @@ bool SixDOF::checkReadings()
 //   filter.update(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, 0, 0, 0, quaternion);
 // }
 
-vector<double> SixDOF::quaternionToEuler()
-{
-  float w = quaternion[0];
-  float x = quaternion[1];
-  float y = quaternion[2];
-  float z = quaternion[3];
-  float roll = atan2(2 * (x * w + y * z), 1 - 2 * (x * x + y * y));
-  float pitch = asin(2 * (y * w - z * x));
-  float yaw = atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
-  return {static_cast<double>(roll), static_cast<double>(pitch), static_cast<double>(yaw)};
-}
+// vector<double> SixDOF::quaternionToEuler()
+// {
+//   float w = quaternion[0];
+//   float x = quaternion[1];
+//   float y = quaternion[2];
+//   float z = quaternion[3];
+//   float roll = atan2(2 * (x * w + y * z), 1 - 2 * (x * x + y * y));
+//   float pitch = asin(2 * (y * w - z * x));
+//   float yaw = atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+//   return {static_cast<double>(roll), static_cast<double>(pitch), static_cast<double>(yaw)};
+// }
 
 void SixDOF::updateVelocities()
 {
   // Get acceleration data
-  std::vector<double> accelData = getAcceleration();
+  std::vector<double> accelData = getFilteredAccelerations();
+
   double accelX = accelData[0];
   double accelY = accelData[1];
   double accelZ = accelData[2];
@@ -225,4 +243,25 @@ vector<double> SixDOF::getPositions()
 vector<double> SixDOF::getVelocities()
 {
   return {velocity_x, velocity_y, velocity_z};
+}
+
+double SixDOF::getNetAccel()
+{
+  sensors_event_t accel1;
+  sensors_event_t gyro1;
+  sensors_event_t temp1;
+  dso32.getEvent(&accel1, &gyro1, &temp1);
+  double Ax = accel1.acceleration.x;
+  double Ay = accel1.acceleration.y;
+  double Az = accel1.acceleration.z;
+  Net_Accel = sqrt((pow(Ax, 2) + pow(Ay, 2) + pow(Az, 2)));
+}
+
+vector<double> SixDOF::getFilteredAccelerations()
+{
+  sensors_event_t accel1;
+  sensors_event_t gyro1;
+  sensors_event_t temp1;
+  dso32.getEvent(&accel1, &gyro1, &temp1);
+  return {accelXFilter.updateEstimate(accel1.acceleration.x), accelYFilter.updateEstimate(accel1.acceleration.y), accelZFilter.updateEstimate(accel1.acceleration.z)};
 }

@@ -8,6 +8,9 @@
 using namespace std;
 #define RATE_THRESHOLD 0.05
 #define ERROR_RANGE 25
+// values below should be fixed
+#define EXPECTED_NETACCEL 100
+#define IGNITE_THRESHOLD 15
 
 const double FAIL_TIME = 30000;
 
@@ -66,13 +69,12 @@ double calculateRateOfChange(double AltArray[], int READINGS_LENGTH)
 
 bool check_IGNITABLE(SixDOF &_6DOF, PHT &alt, MPU9250 &mpu)
 {
-    // check 6DOF against 7 Gs
+    double netAccel = _6DOF.getNetAccel();
+    if (fabs(netAccel - EXPECTED_NETACCEL) < IGNITE_THRESHOLD)
+    {
+    }
     // check mpu against 7 Gs
     // check altitude rate of change against 10 m/s
-    // if (statesMap["_6DOF"])
-    // {
-
-    // }
     return false;
 }
 // in the main loop, we will get sensor data from 6dof, altimeter, and mpu.
@@ -326,11 +328,13 @@ void HalyaStateMachine(SixDOF &_6DOF1, PHT &alt1, MPU9250 &mpu1, GPS &gps1, SixD
     {
         current_state = LaunchState::Touchdown;
         break;
+        // send GPS data
     }
 
     case LaunchState::Touchdown:
     {
         // Print GPS readings if required
+        // send GPS data
         break;
     }
     }

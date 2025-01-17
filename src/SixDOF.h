@@ -22,6 +22,7 @@ public:
   bool check_IGNITABLE();
   vector<double> getAcceleration();
   vector<double> getGyro();
+  double getNetAccel();
   void updateQuaternionFilter();
   vector<double> quaternionToEuler();
   bool checkReadings();
@@ -31,6 +32,8 @@ public:
   void updatePositions();
   vector<double> getVelocities();
   vector<double> getPositions();
+  // double getDirection();
+  vector<double> getFilteredAccelerations();
 
 private:
   float quaternion[4];

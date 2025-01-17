@@ -2,8 +2,8 @@
 #include <Adafruit_GPS.h>
 
 #define GPSECHO true
-#define TX_PIN 17 // connect RX on gps
-#define RX_PIN 21 // connect TX on gps
+#define TX_PIN 20 // connect RX on gps
+#define RX_PIN 19 // connect TX on gps
 #define GPSSerial Serial1
 class GPS : public Adafruit_GPS
 {

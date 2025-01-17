@@ -244,18 +244,6 @@ void loop()
             Serial.println("Failed to transmit 6DOF Gyroscope Data .");
         }
 
-        // 6DOF Frame --> Orientation
-        txFrame.identifier = 0xCE;    // Different CAN ID for second frame
-        txFrame.extd = 0;             // Standard frame
-        txFrame.data_length_code = 6; // Data length
-        vector<double> eulerAngles = _6DOF.quaternionToEuler();
-        txFrame.data[0] = integerPartToHex(eulerAngles[0]);
-        txFrame.data[1] = decimalPartToHex(eulerAngles[0]);
-        txFrame.data[2] = integerPartToHex(eulerAngles[1]);
-        txFrame.data[3] = decimalPartToHex(eulerAngles[1]); // Best to use 0xAA (0b10101010) instead of 0
-        txFrame.data[4] = integerPartToHex(eulerAngles[2]); // CAN works better this way as it needs
-        txFrame.data[5] = decimalPartToHex(eulerAngles[2]); // to avoid bit-stuffing
-
         if (ESP32Can.writeFrame(&txFrame))
         {
             Serial.println("6DOF Orientation Data frame transmitted successfully!");

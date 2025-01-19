@@ -1,10 +1,10 @@
 #include <Adafruit_ICM20948.h>
 #include "NineDOF.h"
 
-#define LSM_CS 1
-#define LSM_SCK 2
-#define LSM_MISO 3
-#define LSM_MOSI 4
+#define LSM_CS 38
+#define LSM_SCK 37
+#define LSM_MISO 36
+#define LSM_MOSI 35
 
 Adafruit_ICM20948 icm;
 
@@ -79,41 +79,6 @@ vector<double> NineDOF::getMag()
     icm.getEvent(&accel1, &gyro1, &temp1, &mag1);
     return {mag1.magnetic.x, mag1.magnetic.y, mag1.magnetic.z};
 }
-double NineDOF::updateVerticalVelocity()
-{
-    std::vector<double> accelData = getAcceleration();
-    double accelZ = accelData[2];
-
-    vertical_velocity += accelZ * deltaTime;
-
-    if (vertical_velocity < 0 && previous_vertical_velocity >= 0 && !apogeeReached)
-    {
-        apogeeReached = true;
-        Serial.println("Apogee reached!");
-    }
-
-    previous_vertical_velocity = vertical_velocity;
-
-    Serial.print("Vertical Velocity: ");
-    Serial.print(vertical_velocity);
-    Serial.println(" m/s");
-
-    return vertical_velocity;
-}
-
-double NineDOF::updateVerticalAltitude()
-{
-    // Update vertical position based on the current velocity
-    vertical_position += vertical_velocity * deltaTime;
-
-    previous_altitude = vertical_position;
-
-    Serial.print("Altitude: ");
-    Serial.print(vertical_position);
-    Serial.println(" m");
-
-    return vertical_position;
-}
 
 vector<double> NineDOF::getGyro()
 {
@@ -182,41 +147,7 @@ bool NineDOF::checkReadings()
 //   filter.update(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, 0, 0, 0, quaternion);
 // }
 
-void NineDOF::updateVelocities()
-{
-    // Get acceleration data
-    std::vector<double> accelData = getAcceleration();
-    double accelX = accelData[0];
-    double accelY = accelData[1];
-    double accelZ = accelData[2];
 
-    velocity_x += accelX * deltaTime;
-    velocity_y += accelY * deltaTime;
-    velocity_z += accelZ * deltaTime;
-
-    Serial.print("Velocity X: ");
-    Serial.print(velocity_x);
-    Serial.print(" m/s, Velocity Y: ");
-    Serial.print(velocity_y);
-    Serial.print(" m/s, Velocity Z: ");
-    Serial.print(velocity_z);
-    Serial.println(" m/s");
-}
-
-void NineDOF::updatePositions()
-{
-    position_x += velocity_x * deltaTime;
-    position_y += velocity_y * deltaTime;
-    position_z += velocity_z * deltaTime;
-
-    Serial.print("Position X: ");
-    Serial.print(position_x);
-    Serial.print(" m, Position Y: ");
-    Serial.print(position_y);
-    Serial.print(" m, Position Z: ");
-    Serial.print(position_z);
-    Serial.println(" m");
-}
 
 vector<double> NineDOF::getPositions()
 {

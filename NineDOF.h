@@ -2,10 +2,7 @@
 #include "Arduino.h"
 #include <Adafruit_ICM20948.h>
 #include <Adafruit_Sensor.h>
-#define LSM_CS
-#define LSM_SCK
-#define LSM_MISO
-#define LSM_MOSI
+
 #include <vector>
 using namespace std;
 
@@ -21,10 +18,7 @@ public:
     vector<double> getGyro();
     vector<double> getMag();
     bool checkReadings();
-    double updateVerticalVelocity();
-    double updateVerticalAltitude();
-    void updateVelocities();
-    void updatePositions();
+    
     vector<double> getVelocities();
     vector<double> getPositions();
 

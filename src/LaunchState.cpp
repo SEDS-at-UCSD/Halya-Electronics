@@ -1,13 +1,15 @@
 #include "LaunchState.h"
 #include <Arduino.h>
-#include "SixDOF.h"
+// #include "SixDOF.h"
 #include "PHT.h"
-#include "MPU9250.h"
+// #include "MPU9250.h"
 #include "GPS.h"
 #include <map>
+#include <vector>
 using namespace std;
 #define RATE_THRESHOLD 0.05
 #define ERROR_RANGE 25
+#define HEIGHT_OFFSET 5 // correct this
 // values below should be fixed
 #define EXPECTED_NETACCEL 100
 #define IGNITE_THRESHOLD 15
@@ -67,62 +69,61 @@ double calculateRateOfChange(double AltArray[], int READINGS_LENGTH)
     return rate_of_change;
 }
 
-bool check_IGNITABLE(SixDOF &_6DOF, PHT &alt, MPU9250 &mpu)
-{
-    double netAccel = _6DOF.getNetAccel();
-    if (fabs(netAccel - EXPECTED_NETACCEL) < IGNITE_THRESHOLD)
-    {
-    }
-    // check mpu against 7 Gs
-    // check altitude rate of change against 10 m/s
-    return false;
-}
+// bool check_IGNITABLE(SixDOF &_6DOF, PHT &alt)
+// {
+//     double netAccel = _6DOF.getNetAccel();
+//     if (fabs(netAccel - EXPECTED_NETACCEL) < IGNITE_THRESHOLD)
+//     {
+//     }
+//     // check mpu against 7 Gs
+//     // check altitude rate of change against 10 m/s
+//     return false;
+// }
 // in the main loop, we will get sensor data from 6dof, altimeter, and mpu.
 // then we will run HalyaStateMachine, which can determine correct state of the flight and run prioritized code for that state
-void HalyaStateMachine(SixDOF &_6DOF1, PHT &alt1, MPU9250 &mpu1, GPS &gps1, SixDOF &_6DOF2, PHT &alt2, MPU9250 &mpu2, GPS &gps2)
+void HalyaStateMachine(PHT &alt1, GPS &gps1, PHT &alt2, GPS &gps2)
 {
     static int retryCount = 0;
     const int MAX_RETRIES = 5;
 
     switch (current_state)
     {
+
+    // read from serial and enable movement across launch states
     case LaunchState::PreIgnition:
     {
-        while (!_6DOF1.check_IGNITABLE())
-        {
-            delay(4000); // Long delay to conserve power
-        }
+        // while (!_6DOF1.check_IGNITABLE())
+        // {
+        //     delay(4000); // Long delay to conserve power
+        // }
 
-        bool is_6DOF_working = _6DOF1.checkReadings();
+        // bool is_6DOF_working = _6DOF1.checkReadings();
         bool is_altimeter_working = alt1.getAltitude() != 0;
-        bool is_mpu_working = mpu1.update() && mpu1.getAcc(millis()) != 0 & mpu1.getGyro(millis()) != 0;
+        // bool is_mpu_working = mpu1.update() && mpu1.getAcc(millis()) != 0 & mpu1.getGyro(millis()) != 0;
         bool is_gps_working = gps1.readingCheck();
 
-        if (is_6DOF_working & is_altimeter_working & is_mpu_working & is_gps_working)
+        if (is_altimeter_working & is_gps_working)
         {
             groundLevelAltitude = alt1.getAltitude();
-            statesMap["_6DOF"] = true;
+            // statesMap["_6DOF"] = true;
             statesMap["altimeter"] = true;
-            statesMap["mpu"] = true;
+            // statesMap["mpu"] = true;
             statesMap["gps"] = true;
         }
         else
         {
-            if (!is_6DOF_working)
-                Serial.println("Warning: 6DOF sensor failure.");
             if (!is_altimeter_working)
                 Serial.println("Warning: Altimeter failure.");
-            if (!is_mpu_working)
-                Serial.println("Warning: MPU failure.");
+            // if (!is_mpu_working)
+            //     Serial.println("Warning: MPU failure.");
 
             delay(20);
             retryCount++;
             if (retryCount == MAX_RETRIES)
             {
                 Serial.print("Continuing with limited functionality.");
-                statesMap["_6DOF"] = is_6DOF_working;
                 statesMap["altimeter"] = is_altimeter_working;
-                statesMap["mpu"] = is_mpu_working;
+                // statesMap["mpu"] = is_mpu_working;
                 statesMap["gps"] = is_gps_working;
             }
         }
@@ -134,122 +135,146 @@ void HalyaStateMachine(SixDOF &_6DOF1, PHT &alt1, MPU9250 &mpu1, GPS &gps1, SixD
 
     case LaunchState::Ignition_to_Apogee:
     {
-        // iterative count
         static int count = 0;
-        // error flags for each of the sensors
-        bool PHT1_error = (alt1.getAltitude() == 0);
-        bool PHT2_error = (alt2.getAltitude() == 0);
+
+        // Read sensor values
+        double PHT1_alt = alt1.getAltitude();
+        double PHT2_alt = alt2.getAltitude() + HEIGHT_OFFSET;
+        double GPS1_alt = gps1.getAltitude();
+        double GPS2_alt = gps2.getAltitude() + HEIGHT_OFFSET;
+
+        // Error detection
+        bool PHT1_error = (PHT1_alt == 0);
+        bool PHT2_error = (PHT2_alt == 0);
         bool GPS1_error = gps1.readingCheck();
         bool GPS2_error = gps2.readingCheck();
-        bool IMU1_error = !_6DOF1.checkReadings();
-        bool IMU2_error = !_6DOF2.checkReadings();
 
-        double altReading1 = 0, altReading2 = 0;
-        bool usePHT1 = true, usePHT2 = true;
+        // Valid altitudes (non-error)
+        std::vector<double> validReadings;
+        if (!PHT1_error)
+            validReadings.push_back(PHT1_alt);
+        if (!PHT2_error)
+            validReadings.push_back(PHT2_alt);
+        if (!GPS1_error)
+            validReadings.push_back(GPS1_alt);
+        if (!GPS2_error)
+            validReadings.push_back(GPS2_alt);
 
-        // Check if both PHTs are working and if they agree
-        if (!PHT1_error && !PHT2_error)
+        double final_altitude = 0;
+
+        if (validReadings.size() >= 3)
         {
-            if (fabs(alt1.getAltitude() - alt2.getAltitude()) < ERROR_RANGE)
+            // Find the median of the valid readings
+            std::sort(validReadings.begin(), validReadings.end());
+            double median_alt = (validReadings.size() % 2 == 0) ? (validReadings[validReadings.size() / 2 - 1] + validReadings[validReadings.size() / 2]) / 2.0
+                                                                : validReadings[validReadings.size() / 2];
+
+            // Check if three sensors agree within ERROR_RANGE
+            int agreement_count = 0;
+            for (double alt : validReadings)
             {
-                altReading1 = alt1.getAltitude();
-                altReading2 = alt2.getAltitude();
+                if (fabs(alt - median_alt) < ERROR_RANGE)
+                {
+                    agreement_count++;
+                }
             }
-            // if they do not agree we check with the GPS
+
+            if (agreement_count >= 3)
+            {
+                final_altitude = median_alt; // Ignore the outlier
+            }
             else
             {
-                // check whether GPS has errors or not and then compare values accordingly
-                double gpsAvgAltitude = 0;
-                if (!GPS1_error || !GPS2_error)
+                // If two agree and two don't, favor the top bay sensors (PHT1, GPS1)
+                if ((fabs(PHT1_alt - GPS1_alt) < ERROR_RANGE) && (!PHT1_error && !GPS1_error))
                 {
-                    gpsAvgAltitude = (GPS1_error) ? gps2.getAltitude() : (GPS2_error) ? gps1.getAltitude()
-                                                                                      : (gps1.getAltitude() + gps2.getAltitude()) / 2.0;
-
-                    // based on the GPS reading, we make sure to see which PHT it agrees with
-                    // POTENTIAL ERROR CASE: if the GPS altitude is equally distant from both points or within error range of both,
-                    // maybe we should take the average of both points
-                    if (fabs(alt1.getAltitude() - gpsAvgAltitude) < ERROR_RANGE)
+                    final_altitude = (PHT1_alt + GPS1_alt) / 2.0;
+                }
+                else if ((fabs(PHT2_alt - GPS2_alt) < ERROR_RANGE) && (!PHT2_error && !GPS2_error))
+                {
+                    final_altitude = (PHT2_alt + GPS2_alt) / 2.0;
+                }
+                else
+                {
+                    // Otherwise, prioritize PHT sensors
+                    if (!PHT1_error && !PHT2_error)
                     {
-                        altReading1 = alt1.getAltitude();
-                        usePHT2 = false;
+                        final_altitude = (PHT1_alt + PHT2_alt) / 2.0;
                     }
-                    else if (fabs(alt2.getAltitude() - gpsAvgAltitude) < ERROR_RANGE)
+                    else if (!PHT1_error)
                     {
-                        altReading2 = alt2.getAltitude();
-                        usePHT1 = false;
+                        final_altitude = PHT1_alt;
+                    }
+                    else if (!PHT2_error)
+                    {
+                        final_altitude = PHT2_alt;
+                    }
+                    else
+                    {
+                        // Last fallback to GPS
+                        if (!GPS1_error && !GPS2_error)
+                        {
+                            final_altitude = (GPS1_alt + GPS2_alt) / 2.0;
+                        }
+                        else if (!GPS1_error)
+                        {
+                            final_altitude = GPS1_alt;
+                        }
+                        else if (!GPS2_error)
+                        {
+                            final_altitude = GPS2_alt;
+                        }
                     }
                 }
-                // check if IMUs work or not
-                else if (!IMU1_error || !IMU2_error)
-                {
-                    // If GPS is not available, fall back to IMU to verify PHT
-                    double imuAvgAltitude = (!IMU1_error && !IMU2_error) ? (_6DOF1.updateVerticalAltitude() + _6DOF2.updateVerticalAltitude()) / 2.0 : (!IMU1_error) ? _6DOF1.updateVerticalAltitude()
-                                                                                                                                                                     : _6DOF2.updateVerticalAltitude();
-                    // check if within error range
-                    // same POTENTIAL ERROR CASE
-                    if (fabs(alt1.getAltitude() - imuAvgAltitude) < ERROR_RANGE)
-                    {
-                        altReading1 = alt1.getAltitude();
-                        usePHT2 = false;
-                    }
-                    else if (fabs(alt2.getAltitude() - imuAvgAltitude) < ERROR_RANGE)
-                    {
-                        altReading2 = alt2.getAltitude();
-                        usePHT1 = false;
-                    }
-                }
             }
         }
-
-        // check if we only have to use PHT 1
-        if (!PHT1_error && usePHT1 && (PHT2_error || !usePHT2))
+        else
         {
-            altReading1 = alt1.getAltitude();
-            altReading2 = altReading1;
-        }
-        // check if we only have to use PHT 2
-        else if (!PHT2_error && usePHT2 && (PHT1_error || !usePHT1))
-        {
-            altReading1 = alt2.getAltitude();
-            altReading2 = altReading1;
-        }
-
-        // Step 3: If both PHTs are invalid, fall back to GPS
-        if ((PHT1_error || !usePHT1) && (PHT2_error || !usePHT2))
-        {
-            if (!GPS1_error || !GPS2_error)
+            // Not enough valid readings, fallback logic
+            if (!PHT1_error && !PHT2_error)
             {
-                altReading1 = (!GPS1_error && !GPS2_error) ? (gps1.getAltitude() + gps2.getAltitude()) / 2.0 : (!GPS1_error) ? gps1.getAltitude()
-                                                                                                                             : gps2.getAltitude();
-                altReading2 = altReading1;
+                final_altitude = (PHT1_alt + PHT2_alt) / 2.0;
             }
-            else if (!IMU1_error || !IMU2_error)
+            else if (!PHT1_error)
             {
-                // Step 4: Check individual IMUs if GPS fails
-                altReading1 = (!IMU1_error && !IMU2_error) ? (_6DOF1.updateVerticalAltitude() + _6DOF2.updateVerticalAltitude()) / 2.0 : (!IMU1_error) ? _6DOF1.updateVerticalAltitude()
-                                                                                                                                                       : _6DOF2.updateVerticalAltitude();
-                altReading2 = altReading1;
+                final_altitude = PHT1_alt;
+            }
+            else if (!PHT2_error)
+            {
+                final_altitude = PHT2_alt;
+            }
+            else if (!GPS1_error && !GPS2_error)
+            {
+                final_altitude = (GPS1_alt + GPS2_alt) / 2.0;
+            }
+            else if (!GPS1_error)
+            {
+                final_altitude = GPS1_alt;
+            }
+            else if (!GPS2_error)
+            {
+                final_altitude = GPS2_alt;
             }
         }
 
-        AltArray[count % READINGS_LENGTH] = altReading1;
-        AltArray2[count % READINGS_LENGTH] = altReading2;
+        // Store the altitude values for rate of change calculation
+        AltArray[count % READINGS_LENGTH] = final_altitude;
         count++;
 
         // Step 5: Check for apogee based on calculated rate of change
         if (count >= READINGS_LENGTH)
         {
             double rate_of_change_1 = calculateRateOfChange(AltArray, READINGS_LENGTH);
-            double rate_of_change_2 = calculateRateOfChange(AltArray2, READINGS_LENGTH);
+            // double rate_of_change_2 = calculateRateOfChange(AltArray2, READINGS_LENGTH);
 
-            if ((fabs(rate_of_change_1) < RATE_THRESHOLD && rate_of_change_1 < 0) ||
-                (fabs(rate_of_change_2) < RATE_THRESHOLD && rate_of_change_2 < 0))
+            if ((fabs(rate_of_change_1) < RATE_THRESHOLD && rate_of_change_1 < 0))
             {
                 Serial.println("Halya has reached apogee!");
                 current_state = LaunchState::Thousand_ft;
             }
             count = 0;
         }
+
         delay(100); // Delay for sensor updates
         break;
     }

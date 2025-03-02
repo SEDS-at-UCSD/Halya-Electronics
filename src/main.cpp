@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "MPU9250.h"
+// #include "MPU9250.h"
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <Adafruit_LSM6DSOX.h>
@@ -8,7 +8,11 @@
 #include <Adafruit_MS8607.h>
 #include <math.h>
 #include "GPS.h"
+#include "NineDOF.h"
 #include <map>
+#include "esp_system.h"
+#include "esp_adc_cal.h"
+#include "driver/temp_sensor.h"
 // #include "LaunchState.h"
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define LSM_CS 5
@@ -16,18 +20,40 @@
 #define LSM_MISO 19
 #define LSM_MOSI 23
 SixDOF _6DOF;
-PHT Alt;
-MPU9250 mpu;
-TwoWire I2C_two(1);
+// PHT Alt;
+// MPU9250 mpu;
+// TwoWire I2C_n(1);
+TwoWire I2C_one(0);
+PHT Alt(I2C_one);
 uint16_t measurement_delay_us = 65535; // Delay between measurements for testing
 GPS GPS1;
 // LaunchState Halya;
+NineDOF _9DOF;
 int groundLevelAltitudeTest = 0;
-std::map<string, bool> statesMapTest;
+// std::map<string, bool> statesMapTest;
 double AltArrayTest[10];
 double previousMedianTest = 0;
 
 bool CHECK = false;
+
+float getCoreTemperature()
+{
+  float temp_value = 0;
+
+  // Initialize temperature sensor
+  temp_sensor_config_t temp_sensor = TSENS_CONFIG_DEFAULT();
+  temp_sensor_get_config(&temp_sensor);
+  temp_sensor.dac_offset = TSENS_DAC_L2; // Adjust DAC offset if needed
+
+  temp_sensor_set_config(temp_sensor);
+  temp_sensor_start();
+
+  // Read temperature
+  temp_sensor_read_celsius(&temp_value);
+  temp_sensor_stop();
+
+  return temp_value;
+}
 
 double returnAverageTest(double arr[], int number)
 {
@@ -69,7 +95,9 @@ double calculateRateOfChangeTest(double AltArray[], int READINGS_LENGTH)
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(921600);
+
+  // temp_sensor_start();
 
   while (!Serial)
   {
@@ -77,16 +105,36 @@ void setup()
     delay(10);
   }
 
-  GPS1.startGPS();
-  delay(500);
+  // GPS1.startGPS();
+  // delay(500);
 
-  if (!(_6DOF.start_6DOF()))
-  {
-    Serial.println("6DOF Failed to start");
-  }
+  // if (!(_6DOF.start_6DOF()))
+  // {
+  //   Serial.println("6DOF Failed to start");
+  // }
   // Altimeter
-  Alt.startPHT();
+  // Alt.startPHT();
+  // I2C_one.begin(42, 41);
+  // if (!Alt.connectSensor())
+  // {
+  //   Serial.println("Error connecting to sensor...");
+  // }
+  // else
+  // {
+  //   Serial.println("Connected to sensor");
+  //   Alt.setSensorConfig();
+  // }
   // 9 DOF
+  // I2C_two.begin(36, 37);
+  // if (!_9DOF.begin())
+  // {
+  //   Serial.println("Sensor initialization failed!");
+  //   while (1)
+  //     delay(10);
+  // }
+  // _9DOF.calibrateSensors();
+  // _9DOF.calibrateMag();
+
   // I2C_two.begin(21, 22);
   // I2C_two.setClock(400000);
   // delay(1000);
@@ -100,14 +148,26 @@ void setup()
   // }
 }
 
+static int counter = 0;
+
 void loop()
 {
+
+  // float coreTemp = getCoreTemperature();
+  // Serial.print("ESP32-S3 Core Temperature: ");
+  // Serial.print(coreTemp);
+  // Serial.println(" °C");
+
   // // GPS
+  // GPS1.printInfo();
+  // nmea_float_t latitude = GPS1.latitude;
+  // double degrees = GPS1.convertToDegrees(latitude);
+  // Serial.println(degrees);
 
   // 6DOF
-  Serial.print("6DOF READINGS\n");
-  Serial.print(_6DOF.printSensorData());
-  Serial.print("\n");
+  // Serial.print("6DOF READINGS\n");
+  // Serial.print(_6DOF.printSensorData());
+  // Serial.print("\n");
   // _6DOF.check_IGNITABLE();
   // vector<double> velocities = _6DOF.getVelocities();
   // Serial.print("\n");
@@ -129,122 +189,21 @@ void loop()
   // Serial.print("\n");
   // Serial.print(_6DOF.updateVerticalAltitude());
   // Serial.print("\n");
-  _6DOF.updateVelocities();
-  Serial.print("\n");
-  _6DOF.updatePositions();
-  Serial.print("\n");
-  delay(500);
+  // _6DOF.updateVelocities();
+  // Serial.print("\n");
+  // _6DOF.updatePositions();
+  // Serial.print("\n");
+  // delay(500);
 
-  // // Serial.print(String(_6DOF.check_IGNITABLE()) + "\n");
+  // Serial.print(String(_6DOF.check_IGNITABLE()) + "\n");
   // Altimeter
-  // Serial.print("ALT READINGS\n");
-  // Serial.print(Alt.printReadings());
-  // Serial.print("\n");
-  // Serial.print(Alt.getAltitude());
+  Alt.updateData();
+  Alt.printData();
+  Serial.println(String(Alt.getAltitude()) + " meters \n");
+  // delay(1000);
   // delay(500);
-  // // 9DOF
-  // // Serial.print("(9DOF)  "); // 9DOF tweaking
-  // // if (mpu.update())
-  // // {
-  // //   static uint32_t prev_ms = millis();
-  // //   Serial.print(String(mpu.getAcc(prev_ms)) + " ");
-  // //   Serial.print(String(mpu.getGyro(prev_ms)) + "\n" + "\n");
-  // // }
-  // Serial.print("GPS READINGS\n");
-  // GPS1.printInfo();
-  // Serial.print(GPS1.getAltitude());
-  // Serial.print("\n");
-  // delay(500);
-  // // Halya.HalyaStateMachine(_6DOF, Alt, mpu);
-  // static int retryCount = 0;
-  // const int MAX_RETRIES = 5;
-  // _6DOF.check_IGNITABLE();
 
-  // bool is_6DOF_working = _6DOF.checkReadings();
-  // Serial.print(is_6DOF_working);
-  // bool is_altimeter_working = Alt.getAltitude() != 0;
-  // Serial.print(is_altimeter_working);
-  // // bool is_mpu_working = mpu1.update() && mpu1.getAcc(millis()) != 0 & mpu1.getGyro(millis()) != 0;
-  // bool is_gps_working = GPS1.readingCheck();
-  // Serial.print(is_gps_working);
-
-  // if (is_6DOF_working & is_altimeter_working & is_gps_working)
-  // {
-  //   groundLevelAltitudeTest = Alt.getAltitude();
-  //   statesMapTest["_6DOF"] = true;
-  //   statesMapTest["altimeter"] = true;
-  //   statesMapTest["mpu"] = true;
-  //   statesMapTest["gps"] = true;
-  // }
-  // else
-  // {
-  //   if (!is_6DOF_working)
-  //     Serial.println("Warning: 6DOF sensor failure.");
-  //   if (!is_altimeter_working)
-  //     Serial.println("Warning: Altimeter failure.");
-
-  //   delay(20);
-  //   retryCount++;
-  //   if (retryCount == MAX_RETRIES)
-  //   {
-  //     Serial.print("Continuing with limited functionality.");
-  //     statesMapTest["_6DOF"] = is_6DOF_working;
-  //     statesMapTest["altimeter"] = is_altimeter_working;
-  //     statesMapTest["gps"] = is_gps_working;
-  //   }
-  // }
-
-  // Serial.println("halya ignition!");
-
-  // static int count = 0;
-
-  // // Error flags for each of the sensors
-  // bool PHT_error = (Alt.getAltitude() == 0);
-  // // Serial.print(PHT_error);
-  // bool GPS_error = GPS1.readingCheck();
-  // // Serial.print(GPS_error);
-  // bool IMU_error = !_6DOF.checkReadings();
-  // // Serial.print(IMU_error);
-
-  // double altReading = 0;
-
-  // // Check if the PHT sensor is working
-  // if (!PHT_error)
-  // {
-  //   altReading = Alt.getAltitude();
-  //   // Serial.print(altReading);
-  // }
-  // // If the PHT sensor is not working, fall back to GPS
-  // else if (!GPS_error)
-  // {
-  //   altReading = GPS1.getAltitude();
-  //   // Serial.print(altReading);
-  // }
-  // // If both PHT and GPS are not working, fall back to IMU
-  // else if (!IMU_error)
-  // {
-  //   altReading = _6DOF.updateVerticalAltitude();
-  //   // Serial.print(altReading);
-  // }
-
-  // // Store the altitude reading in the circular buffer
-  // AltArrayTest[count % 15] = altReading;
-  // count++;
-
-  // // Check for apogee based on the rate of change of altitude
-  // if (count >= 15)
-  // {
-  //   double rate_of_change = calculateRateOfChangeTest(AltArrayTest, 15);
-  //   Serial.print(rate_of_change);
-  //   Serial.print("\n");
-  //   if (fabs(rate_of_change) < 0.15 || rate_of_change <= 0)
-  //   {
-  //     // Serial.println("Halya has reached apogee!");
-  //   }
-  //   count = 0;
-  // }
-
-  // delay(500); // Delay for sensor updates
+  delay(500); // Delay for sensor updates
 }
 
 // Initialization: Initial state where sensors are set up and variables initialized.

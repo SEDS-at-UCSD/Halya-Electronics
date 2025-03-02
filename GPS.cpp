@@ -19,7 +19,7 @@ void GPS::startGPS()
   GPSSerial.println(PMTK_Q_RELEASE);
 }
 
-nmea_float_t getLatitude()
+nmea_float_t GPS::getLatitude()
 {
   Serial.println("Getting Latitude.");
   char c = GPS_1.read();
@@ -37,11 +37,12 @@ nmea_float_t getLatitude()
     // Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
     Serial.print(GPS_1.lastNMEA());
     if (!GPS_1.parse(GPS_1.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return;                           // we can fail to parse a sentence in which case we should just wait for another
+      return -1;                           // we can fail to parse a sentence in which case we should just wait for another
   }
 
   if (GPS_1.fix)
   {
+    Serial.println("GPS Latitude: ");
     return GPS_1.latitude;
   }
   else
@@ -51,7 +52,7 @@ nmea_float_t getLatitude()
   }
 }
 
-nmea_float_t getLongitude()
+nmea_float_t GPS::getLongitude()
 {
   Serial.println("Getting Longitude");
   char c = GPS_1.read();
@@ -69,11 +70,12 @@ nmea_float_t getLongitude()
     // Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
     Serial.print(GPS_1.lastNMEA());
     if (!GPS_1.parse(GPS_1.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return;                           // we can fail to parse a sentence in which case we should just wait for another
+      -1;                           // we can fail to parse a sentence in which case we should just wait for another
   }
 
   if (GPS_1.fix)
   {
+    Serial.println("GPS Latitude: ");
     return GPS_1.longitude;
   }
   else
@@ -180,15 +182,22 @@ bool GPS::readingCheck()
   return true;
 }
 
-double GPS::convertToDegrees(int32_t coordinate)
+double GPS::convertToDegrees(double coordinate)
 {
   // dd mm.mmmm
-  int coordinateVal = int(coordinate);
-  if (coordinateVal < 0)
-  {
-    coordinateVal *= -1;
-  }
-  return coordinate / pow(10, 7);
+  Serial.println("Coordinate initial val:");
+  Serial.println(coordinate);
+  return coordinate;
+  // int coordinateInt = int(coordinate);
+  // if (coordinateInt < 0)
+  // {
+  //   coordinateInt *= -1;
+  // }
+  // double coordinateDec = coordinate - coordinateInt;
+  // double convertedCoords = coordinateInt + coordinateDec;
+  // Serial.println(convertedCoords);
+  // return convertedCoords;
+  //return coordinate / pow(10, 7);
 }
 
 uint8_t GPS::extraPrecision(double coordinate)
@@ -204,6 +213,8 @@ uint8_t GPS::extraPrecision(double coordinate)
   uint8_t hexValue = 0x00 + static_cast<uint8_t>(filteredDecimal);
   return hexValue;
 }
+
+
 
 String GPS::representAsCoordinates(uint8_t latitude_integer, uint8_t latitude_decimal, uint8_t latitude_precision, uint8_t longitude_integer, uint8_t longitude_decimal, uint8_t longitude_precision)
 {

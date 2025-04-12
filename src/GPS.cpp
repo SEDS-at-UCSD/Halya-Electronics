@@ -19,6 +19,70 @@ void GPS::startGPS()
   GPSSerial.println(PMTK_Q_RELEASE);
 }
 
+nmea_float_t getLatitude()
+{
+  Serial.println("Getting Latitude.");
+  char c = GPS_1.read();
+  // if you want to debug, this is a good time to do it!
+  if (GPSECHO)
+    if (c)
+      Serial.print(c);
+
+  // if a sentence is received, we can check the checksum, parse it...
+  if (GPS_1.newNMEAreceived())
+  {
+    // a tricky thing here is if we print the NMEA sentence, or data
+    // we end up not listening and catching other sentences!
+    // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
+    // Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+    Serial.print(GPS_1.lastNMEA());
+    if (!GPS_1.parse(GPS_1.lastNMEA())) // this also sets the newNMEAreceived() flag to false
+      return;                           // we can fail to parse a sentence in which case we should just wait for another
+  }
+
+  if (GPS_1.fix)
+  {
+    return GPS_1.latitude;
+  }
+  else
+  {
+    Serial.println("no fix for latitude");
+    return -1; // no fix
+  }
+}
+
+nmea_float_t getLongitude()
+{
+  Serial.println("Getting Longitude");
+  char c = GPS_1.read();
+  // if you want to debug, this is a good time to do it!
+  if (GPSECHO)
+    if (c)
+      Serial.print(c);
+
+  // if a sentence is received, we can check the checksum, parse it...
+  if (GPS_1.newNMEAreceived())
+  {
+    // a tricky thing here is if we print the NMEA sentence, or data
+    // we end up not listening and catching other sentences!
+    // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
+    // Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+    Serial.print(GPS_1.lastNMEA());
+    if (!GPS_1.parse(GPS_1.lastNMEA())) // this also sets the newNMEAreceived() flag to false
+      return;                           // we can fail to parse a sentence in which case we should just wait for another
+  }
+
+  if (GPS_1.fix)
+  {
+    return GPS_1.longitude;
+  }
+  else
+  {
+    Serial.println("no fix for longitude");
+    return -1; // no fix
+  }
+}
+
 void GPS::printInfo()
 {
 
@@ -103,6 +167,8 @@ void GPS::printInfo()
   }
   // Serial.println();
 }
+
+
 
 // write a more comprehensive funciton
 bool GPS::readingCheck()

@@ -9,6 +9,8 @@ class GPS : public Adafruit_GPS
 {
 public:
   GPS();
+  nmea_float_t getLatitude();
+  nmea_float_t getLongitude();
   void startGPS();
   void printInfo();
   bool readingCheck();

@@ -270,7 +270,7 @@ void HalyaStateMachine(PHT &alt1, GPS &gps1, PHT &alt2, GPS &gps2)
             if ((fabs(rate_of_change_1) < RATE_THRESHOLD && rate_of_change_1 < 0))
             {
                 Serial.println("Halya has reached apogee!");
-                current_state = LaunchState::Thousand_ft;
+                current_state = LaunchState::_1000ft;
             }
             count = 0;
         }
@@ -279,7 +279,7 @@ void HalyaStateMachine(PHT &alt1, GPS &gps1, PHT &alt2, GPS &gps2)
         break;
     }
 
-    case LaunchState::Thousand_ft:
+    case LaunchState::_1000ft:
     {
         bool PHT1_error = (alt1.getAltitude() == 0);
         bool PHT2_error = (alt2.getAltitude() == 0);

@@ -19,7 +19,7 @@ void GPS::startGPS()
   GPSSerial.println(PMTK_Q_RELEASE);
 }
 
-nmea_float_t getLatitude()
+nmea_float_t GPS::getLatitude()
 {
   Serial.println("Getting Latitude.");
   char c = GPS_1.read();
@@ -37,7 +37,7 @@ nmea_float_t getLatitude()
     // Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
     Serial.print(GPS_1.lastNMEA());
     if (!GPS_1.parse(GPS_1.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return;                           // we can fail to parse a sentence in which case we should just wait for another
+      return -1;                        // we can fail to parse a sentence in which case we should just wait for another
   }
 
   if (GPS_1.fix)
@@ -51,7 +51,7 @@ nmea_float_t getLatitude()
   }
 }
 
-nmea_float_t getLongitude()
+nmea_float_t GPS::getLongitude()
 {
   Serial.println("Getting Longitude");
   char c = GPS_1.read();
@@ -69,7 +69,7 @@ nmea_float_t getLongitude()
     // Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
     Serial.print(GPS_1.lastNMEA());
     if (!GPS_1.parse(GPS_1.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return;                           // we can fail to parse a sentence in which case we should just wait for another
+      return -1;                        // we can fail to parse a sentence in which case we should just wait for another
   }
 
   if (GPS_1.fix)
@@ -168,16 +168,13 @@ void GPS::printInfo()
   // Serial.println();
 }
 
-
-
 // write a more comprehensive funciton
 bool GPS::readingCheck()
 {
-  if (GPS_1.altitude == 0)
+  if (GPS_1.fix == false)
   {
-    return false;
+    return true;
   }
-  return true;
 }
 
 double GPS::convertToDegrees(int32_t coordinate)

@@ -255,6 +255,7 @@ double SixDOF::getNetAccel()
   double Ay = accel1.acceleration.y;
   double Az = accel1.acceleration.z;
   Net_Accel = sqrt((pow(Ax, 2) + pow(Ay, 2) + pow(Az, 2)));
+  return Net_Accel;
 }
 
 vector<double> SixDOF::getFilteredAccelerations()

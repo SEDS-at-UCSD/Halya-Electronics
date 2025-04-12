@@ -20,6 +20,7 @@ void PHT::setSensorConfig()
     barometer.setPressPa();
     barometer.setTOffset(-200);
     barometer.setPOffset(5);
+    seaLevelPressure = barometer.getSeaLevel(112.776);
   }
 }
 
@@ -47,19 +48,26 @@ void PHT::printData()
   Serial.print("Temperature: ");
   Serial.print(temperature);
   Serial.println(" °C");
-  Serial.print("Altitude: ");
-  Serial.print(altitude);
-  Serial.println(" meters");
-  Serial.print("Sea Level Pressure: ");
-  Serial.print(seaLevelPressure);
-  Serial.println(" Pa");
+  // Serial.print("Altitude: ");
+  // Serial.print(altitude);
+  // Serial.println(" meters");
+  // Serial.print("Sea Level Pressure: ");
+  // Serial.print(seaLevelPressure);
+  // Serial.println(" Pa");
 }
 
-double PHT::getPressure() { return pressure; }
-double PHT::getTemperature() { return temperature; }
+double PHT::getPressure()
+{
+  barometer.checkUpdates();
+  return barometer.GetPres();
+}
+double PHT::getTemperature()
+{
+  barometer.checkUpdates();
+  return barometer.GetTemp();
+}
 double PHT::getAltitude()
 {
-  return 44330.0 * (1.0 - pow(pressure / SEA_LEVEL_PRESSURE_PA, 0.1903));
-  // return altitude;
+  return 44330.0 * (1.0 - pow(getPressure() / SEA_LEVEL_PRESSURE_PA, 0.1903));
 }
 double PHT::getSeaLevelPressure() { return seaLevelPressure; }

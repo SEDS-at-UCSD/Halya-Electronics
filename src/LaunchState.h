@@ -1,9 +1,12 @@
 #ifndef LaunchState_h
 #include <Arduino.h>
-enum class LaunchState{
+enum class LaunchState
+{
     PreIgnition,
     Ignition_to_Apogee,
-    Thousand_ft,
+    _1000ft,
+    _900ft,
+    _800ft,
     Descent,
     Touchdown,
 };

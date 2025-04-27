@@ -16,7 +16,7 @@
 #include <task.h>
 #include <queue.h>
 #include "LaunchState.h"
-
+#include <ESP32-TWAI-CAN.hpp>
 // Task handles
 GPS GPS_NAV;
 TaskHandle_t transmitTaskHandle;
@@ -29,6 +29,7 @@ StaticJsonDocument<512> sensorDataGlobal;
 SemaphoreHandle_t mutex_d; // dataserialize
 // CAN TWAI message to send
 twai_message_t txMessage;
+CanFrame rxFrame;
 int canTXRXcount[2] = {0, 0};
 // #include "LaunchState.h"
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -76,6 +77,9 @@ int printCAN = 1;
 String loopprint;
 int cycledelay = 2;
 int preignitionCount = 0;
+int expectedAltitude = 160;
+int startingAltitude = 0;
+int offset = 0;
 // Define a queue to hold the JSON data
 QueueHandle_t jsonQueue;
 uint8_t integerPartToHex(double dataValue)
@@ -132,37 +136,43 @@ double hextoDecimal(uint8_t hex_thous_hunds, uint8_t hex_tens_ones, uint8_t hex_
 }
 
 // activate_SOL("1", 1, 1); turns on board 1 sol 1
-void command2pin(String solboardIDnum, char solIndex, char mode)
+void command2pin(String solboardIDnum, char command, char mode)
 {
   twai_message_t txMessage_command;
-
-  // Convert solboardIDnum to integer, ensuring it is valid
   int ID = solboardIDnum.toInt();
-  if (ID < 0 || ID > 255)
-  { // Limit range to prevent errors
-    Serial.println("Invalid solboard ID");
-    return;
-  }
-
-  Serial.print("Solboard ID: ");
-  Serial.println(ID);
-
-  txMessage_command.identifier = ID * 0x10 + 0x0F; // Solenoid Board WRITE COMMAND 0xIDF
-  txMessage_command.flags = TWAI_MSG_FLAG_EXTD;    // Extended frame format
-  txMessage_command.data_length_code = 8;          // 8-byte message
-
-  // Initialize all solenoid states to 0
-  memset(txMessage_command.data, 0, sizeof(txMessage_command.data));
-
-  // Determine solenoid index
-  int statusPin = solIndex - '0'; // Convert char ('0'-'3') to int (0-3)
-  if (statusPin < 0 || statusPin > 3)
+  txMessage_command.identifier = ID * 0x10 + 0x0F; // Solenoid Board WRITE COMMAND 0xIDf
+  txMessage_command.flags = TWAI_MSG_FLAG_EXTD;    // Example flags (extended frame)
+  txMessage_command.data_length_code = 8;          // Example data length (8 bytes)
+  txMessage_command.data[0] = 0xFF;                // Sol 0 //Be default, over CAN hex FF does not trigger valid response
+  txMessage_command.data[1] = 0xFF;                // Sol 1 //HOWEVER, String FXXX over serial may update frequency
+  txMessage_command.data[2] = 0xFF;                // Sol 2
+  txMessage_command.data[3] = 0xFF;                // Sol 3
+  txMessage_command.data[4] = 0xFF;                // Sol 4
+  txMessage_command.data[5] = 0xFF;                // NIL
+  txMessage_command.data[6] = 0xFF;                // NIL
+  txMessage_command.data[7] = 0xFF;                // NIL
+  int statusPin;
+  if (command == '0')
   {
-    Serial.println("Invalid solenoid index");
-    return;
+    statusPin = 0;
   }
-
-  // Set the requested solenoid state
+  else if (command == '1')
+  {
+    statusPin = 1;
+  }
+  else if (command == '2')
+  {
+    statusPin = 2;
+  }
+  else if (command == '3')
+  {
+    statusPin = 3;
+  }
+  else if (command == '4')
+  {
+    statusPin = 4;
+  }
+  // xSemaphoreTake(mutex_d, portMAX_DELAY);
   if (mode == '0')
   {
     pinStatus[ID][statusPin] = 0;
@@ -176,18 +186,10 @@ void command2pin(String solboardIDnum, char solIndex, char mode)
   else
   {
     Serial.println("Invalid mode");
-    return;
   }
-
-  // Transmit the CAN message
-  if (twai_transmit(&txMessage_command, pdMS_TO_TICKS(1)) == ESP_OK)
-  {
-    Serial.println("Solenoid " + String(solIndex) + " actuated successfully");
-  }
-  else
-  {
-    Serial.println("Solenoid " + String(solIndex) + " actuation failed");
-  }
+  twai_transmit(&txMessage_command, pdMS_TO_TICKS(1));
+  // xSemaphoreGive(mutex_d);
+  Serial.println("CAN sent");
 }
 
 // RTOS Tasks, not working as of 3/8 12:31 AM - Matthew
@@ -231,18 +233,18 @@ void Test_Task(void *pvParameters)
 void allSol()
 {
   delay(100);
-  command2pin("01", '0', '1');
-  delay(100);
-  command2pin("01", '0', '0');
   command2pin("01", '1', '1');
   delay(100);
-  command2pin("01", '1', '0');
   command2pin("01", '2', '1');
-  delay(100);
-  command2pin("01", '2', '0');
-  command2pin("01", '3', '1');
-  delay(100);
-  command2pin("01", '3', '0');
+  // command2pin("01", '2', '1');
+  //  delay(100);
+  //   command2pin("01", '1', '0');
+  //  command2pin("01", '2', '1');
+  //  delay(100);
+  //   command2pin("01", '2', '0');
+  //  command2pin("01", '3', '1');
+  //  delay(100);
+  //   command2pin("01", '3', '0');
 }
 double calculateRateOfChangeTest(double AltArray[], int READINGS_LENGTH)
 {
@@ -255,40 +257,49 @@ double calculateRateOfChangeTest(double AltArray[], int READINGS_LENGTH)
   return rate_of_change;
 }
 
+// RX Code
+
 int altCount = 0;
 int rocCount = 0;
-void BabyStateMachine(SixDOF &_6DOF1, PHT &_Alt, GPS &_GPS1)
+void BabyStateMachine(SixDOF &_6DOF1, PHT &_Alt, GPS &_GPS1, double bottomAlt, double bottomLat, double bottomLong)
 // Smaller scale, incomplete state machine used for testing.
 //
 {
-  Serial.println("Entered state machine");
+  // Serial.println("Entered state machine");
   // Run an initial Senesor Check, verify
   String userInput = "";
   switch (current_state1)
   {
   case LaunchState::PreIgnition:
   {
-    Serial.println("Entered preignition state");
+    // Serial.println("Entered preignition state");
     // Run an initial Senesor Check, verify
     Serial.println(String(_6DOF1.getNetAccel()));
     double PHT_alt = _Alt.getAltitude();
     double GPS_alt = _GPS1.getAltitude();
-    bool PHT_error = (PHT_alt == 0);
-    bool GPS_error = !(GPS1.fix);
+    bool PHT1_error = (PHT_alt == 0);
+    bool GPS1_error = !(GPS1.fix);
     double final_alt = 0;
+    // if (!(PHT1_error && GPS1_error))
+    // {
+    //   command2pin("02", '3', '1');
+    // }
 
-    if (!PHT_error && !GPS_error)
+    if (!PHT1_error && !GPS1_error)
     {
       final_alt = (PHT_alt + GPS_alt) / 2;
     }
-    else if (!PHT_error)
+    else if (!PHT1_error)
     {
       final_alt = PHT_alt;
     }
-    else if (!GPS_error)
+    else if (!GPS1_error)
     {
       final_alt = GPS_alt;
     }
+
+    startingAltitude = final_alt;
+    offset = expectedAltitude - startingAltitude;
 
     AltArrayTest[altCount % 10] = final_alt;
     altCount = (altCount + 1) % 10;
@@ -309,15 +320,22 @@ void BabyStateMachine(SixDOF &_6DOF1, PHT &_Alt, GPS &_GPS1)
     {
       userInput += c;
     }
-    if (_6DOF1.getNetAccel() >= 30)
+    if (_6DOF1.getNetAccel() >= 15)
     { // change to match flight accel
       preignitionCount += 1;
       Serial.println("PreignitionAccelReached");
     }
     if (preignitionCount > 4)
     {
-      allSol();
+      // allSol();
+      command2pin("01", '0', '1');
+      // delay(100);
+      // command2pin("01", '1', '0');
+      // delay(2000);
+      // delay(100);
+      // command2pin("01", '2', '0');
       Serial.println("Large acceleration experienced ");
+      delay(10000);
       current_state1 = LaunchState::Ignition_to_Apogee;
     }
     // due to low priority of sensor readings, occasionally check every 8 seconds.
@@ -325,72 +343,296 @@ void BabyStateMachine(SixDOF &_6DOF1, PHT &_Alt, GPS &_GPS1)
     // Save and Print PHT Height;
     // Save and Print Acceleration;
     // Send CAN MSG, Compare with StateMachine2?
-    delay(50);
     break;
   }
   case LaunchState::Ignition_to_Apogee:
   {
-    Serial.println("Next state reached");
+    static int count = 0;
+
+    // Read sensor values
     double PHT_alt = _Alt.getAltitude();
     double GPS_alt = _GPS1.getAltitude();
+    double bottom_alt = bottomAlt; // Using the provided bottom altitude
+
+    // Error detection
     bool PHT_error = (PHT_alt == 0);
-    bool GPS_error = !(GPS1.fix);
-    double final_alt = 0;
+    // Serial.println("PHT error: " + String(PHT_error));
+    bool GPS_error = !(_GPS1.fix);
+    // Serial.println("GPS error: " + String(GPS_error));
+    bool bottom_error = (bottom_alt == 0);
+    // Serial.println("Bottom Sensors Error: " + String(bottom_error));
 
-    if (!PHT_error && !GPS_error)
-    {
-      final_alt = (PHT_alt + GPS_alt) / 2; // should we try to detect outliers before, or use PHT altitude? GPS noise could make this relatively inaccurate
-    }
-    else if (!PHT_error)
-    {
-      final_alt = PHT_alt;
-    }
-    else if (!GPS_error)
-    {
-      final_alt = GPS_alt;
-    }
+    // Calculate final altitude with weighted agreement between sensors
+    double final_altitude = 0;
+    int agreement_count = 0;
 
-    AltArrayTest[altCount % 10] = final_alt;
-    altCount += 1;
-    if (altCount >= 10)
+    // Check for agreement between PHT and GPS (primary sensors)
+    bool PHT_GPS_agree = (!PHT_error && !GPS_error && fabs(PHT_alt - GPS_alt) < 0.5);
+
+    // Check for agreement between PHT and bottom alt
+    bool PHT_bottom_agree = (!PHT_error && !bottom_error && fabs(PHT_alt - bottom_alt) < 0.5);
+
+    // Check for agreement between GPS and bottom alt
+    bool GPS_bottom_agree = (!GPS_error && !bottom_error && fabs(GPS_alt - bottom_alt) < 0.5);
+
+    // Priority 1: At least two sensors agree (with preference for PHT-GPS agreement)
+    if (PHT_GPS_agree)
     {
-      double rate_of_change = calculateRateOfChangeTest(AltArrayTest, 10);
-      if ((fabs(rate_of_change)) < 0.1 || rate_of_change < 0)
+      // Strong preference for PHT-GPS agreement
+      final_altitude = (PHT_alt * 0.6 + GPS_alt * 0.4); // Weight PHT slightly more
+      agreement_count = 2;
+    }
+    else if (PHT_bottom_agree || GPS_bottom_agree)
+    {
+      // Secondary preference for other agreements
+      if (PHT_bottom_agree && GPS_bottom_agree)
       {
-        rocCount += 1;
-        if (rocCount == 5)
-        {
-          current_state1 = LaunchState::_1000ft;
-        }
+        // All three agree (within margins)
+        final_altitude = (PHT_alt + GPS_alt + bottom_alt) / 3.0;
+        agreement_count = 3;
+      }
+      else if (PHT_bottom_agree)
+      {
+        final_altitude = (PHT_alt * 0.5 + bottom_alt * 0.5); // Weight PHT more
+        agreement_count = 2;
+      }
+      else
+      {                                                      // GPS_bottom_agree
+        final_altitude = (GPS_alt * 0.5 + bottom_alt * 0.5); // Weight GPS more
+        agreement_count = 2;
       }
     }
-    // delay(10000);
+    // Priority 2: Use available sensors with preference order
+    else
+    {
+      // Prefer PHT if available
+      if (!PHT_error)
+      {
+        final_altitude = PHT_alt;
+        // If GPS is also available but doesn't agree, we might want to know
+        if (!GPS_error)
+        {
+          // Large discrepancy - might want to flag this
+          if (fabs(PHT_alt - GPS_alt) > 2.0)
+          {
+            Serial.println("Warning: Large PHT-GPS altitude discrepancy");
+          }
+        }
+      }
+      // Fall back to GPS if PHT not available
+      else if (!GPS_error)
+      {
+        final_altitude = GPS_alt;
+      }
+      // Final fallback to bottom altitude
+      else if (!bottom_error)
+      {
+        final_altitude = bottom_alt;
+      }
+      else
+      {
+        // All sensors failed - this should be handled as an error
+        Serial.println("Error: All altitude sensors failed!");
+        // Might want to implement recovery logic here
+        final_altitude = 0; // Or maintain last known good value
+      }
+    }
+
+    // Store the altitude values for rate of change calculation
+    Serial.println("Final Altitude = " + String(final_altitude));
+    Serial.println("Count = " + String(count));
+    AltArrayTest[count % 10] = final_altitude;
+    count++;
+
+    // Calculate rate of change and check for apogee
+    if (count >= 10)
+    {
+      double rate_of_change = calculateRateOfChangeTest(AltArrayTest, 10);
+      Serial.println("Rate of change: " + String(rate_of_change));
+
+      // More conservative apogee detection with additional checks
+      if ((rate_of_change < 0))
+      {
+        rocCount++;
+
+        // Additional verification: check if altitude is actually decreasing
+        // Confirm with current altitude vs previous
+        // double current_alt = final_altitude;
+        // double prev_alt = AltArrayTest[(count - 3) % 10]; // Value from 3 readings ago
+
+        // if (current_alt < prev_alt)
+        // {
+        if (rocCount > 2)
+        {
+          Serial.println("Apogee detected - transitioning to descent phase");
+          command2pin("01", '1', '1');
+          delay(10000);
+          current_state1 = LaunchState::_1000ft;
+        }
+
+        // count = 0;
+        // }
+      }
+      else
+      {
+        rocCount = 0;
+      }
+
+      // Optional: Reset count periodically to use fresh data
+      // if (count >= 20)
+      //   count = 0;
+    }
+
+    // delay(100); // Adjust delay as needed for sensor updates
     break;
   }
   case LaunchState::_1000ft:
   {
-    Serial.println("Next state reached");
-    delay(10000);
-    current_state1 = LaunchState::_900ft;
+    // Read sensor values
+    double PHT_alt = _Alt.getAltitude();
+    double GPS_alt = _GPS1.getAltitude();
+    double bottom_alt = bottomAlt;
+
+    // Error detection
+    bool PHT_error = (PHT_alt == 0);
+    bool GPS_error = !(_GPS1.fix);
+    bool bottom_error = (bottom_alt == 0);
+
+    // Calculate final altitude (weighted if multiple sensors available)
+    double final_altitude = 0;
+
+    if (!PHT_error && !GPS_error)
+    {
+      final_altitude = (PHT_alt + GPS_alt) / 2; // Average if both work
+    }
+    else if (!PHT_error)
+    {
+      final_altitude = PHT_alt; // Fallback to PHT
+    }
+    else if (!GPS_error)
+    {
+      final_altitude = GPS_alt; // Fallback to GPS
+    }
+    else if (!bottom_error)
+    {
+      final_altitude = bottom_alt; // Last resort: bottom sensor
+    }
+    else
+    {
+      break; // All sensors failed; stay in current state
+    }
+
+    Serial.println("Current Altitude: " + String(final_altitude) + " ft");
+
+    // Transition when below 1000 ft
+    if (final_altitude < 10 + startingAltitude)
+    {
+      Serial.println("1000 ft threshold reached! Moving to 900 ft state.");
+      command2pin("01", '2', '1'); // Trigger solenoid/parachute
+      delay(10000);
+      current_state1 = LaunchState::_900ft;
+    }
     break;
   }
   case LaunchState::_900ft:
   {
-    current_state1 = LaunchState::_800ft;
+    double PHT_alt = _Alt.getAltitude();
+    double GPS_alt = _GPS1.getAltitude();
+    double bottom_alt = bottomAlt;
+
+    bool PHT_error = (PHT_alt == 0);
+    bool GPS_error = !(_GPS1.fix);
+    bool bottom_error = (bottom_alt == 0);
+
+    double final_altitude = 0;
+
+    if (!PHT_error && !GPS_error)
+    {
+      final_altitude = (PHT_alt + GPS_alt) / 2;
+    }
+    else if (!PHT_error)
+    {
+      final_altitude = PHT_alt;
+    }
+    else if (!GPS_error)
+    {
+      final_altitude = GPS_alt;
+    }
+    else if (!bottom_error)
+    {
+      final_altitude = bottom_alt;
+    }
+    else
+    {
+      break;
+    }
+
+    Serial.println("Current Altitude: " + String(final_altitude) + " ft");
+
+    // Transition when below 900 ft
+    if (final_altitude < 5 + startingAltitude)
+    {
+      Serial.println("900 ft threshold reached! Moving to 800 ft state.");
+      command2pin("01", '3', '1'); // Next parachute action
+      delay(10000);
+      current_state1 = LaunchState::_800ft;
+    }
     break;
   }
   case LaunchState::_800ft:
   {
-    current_state1 = LaunchState::Descent;
+    double PHT_alt = _Alt.getAltitude();
+    double GPS_alt = _GPS1.getAltitude();
+    double bottom_alt = bottomAlt;
+
+    bool PHT_error = (PHT_alt == 0);
+    bool GPS_error = !(_GPS1.fix);
+    bool bottom_error = (bottom_alt == 0);
+
+    double final_altitude = 0;
+
+    if (!PHT_error && !GPS_error)
+    {
+      final_altitude = (PHT_alt + GPS_alt) / 2;
+    }
+    else if (!PHT_error)
+    {
+      final_altitude = PHT_alt;
+    }
+    else if (!GPS_error)
+    {
+      final_altitude = GPS_alt;
+    }
+    else if (!bottom_error)
+    {
+      final_altitude = bottom_alt;
+    }
+    else
+    {
+      break;
+    }
+
+    Serial.println("Current Altitude: " + String(final_altitude) + " ft");
+
+    // Transition when below 800 ft
+    if (final_altitude < 800)
+    {
+      Serial.println("800 ft threshold reached! Moving to descent phase.");
+      // command2pin("06", '2', '1'); // Final parachute action
+      current_state1 = LaunchState::Descent;
+    }
     break;
   }
   case LaunchState::Descent:
   {
+    // command2pin("06", '3', '1');
+    delay(5000);
     current_state1 = LaunchState::Touchdown;
     break;
   }
   case LaunchState::Touchdown:
   {
+
     break;
   }
   }
@@ -518,6 +760,8 @@ void setup()
   }
   // starts TWAI
   Serial.println("CAN/TWAI BUS STARTED");
+  ESP32Can.setRxQueueSize(8);
+  ESP32Can.setTxQueueSize(8);
   // Create and assign tasks for each core
   // xTaskCreatePinnedToCore(SixDOF_Task, "Six_DOF_Task", 2048, NULL, 1, NULL, 0);
   // xTaskCreatePinnedToCore(PHT_Task, "PHT_Task", 2048, NULL, 2, NULL, 1); // PHT broke af rn
@@ -542,14 +786,107 @@ void setup()
   //   Serial.println("Altimeter Failed to start");
   // }
   // Serial.println("Altimeter Started");       CHANGE ALTIMETER TO MSx07
+  // command2pin("01", '0', '0');
+  // command2pin("01", '1', '0');
+  // command2pin("01", '2', '0');
+  // command2pin("01", '3', '0');
+
+  // command2pin("02", '0', '0');
+  // command2pin("02", '1', '0');
+  // command2pin("02", '2', '0');
+  // command2pin("02", '3', '0');
+
   delay(300);
 }
 
 void loop()
 {
+  double bottomAltitude;
+  double bottomLongitude;
+  double bottomLatitude;
+  if (ESP32Can.readFrame(rxFrame, 1000))
+  { // Wait for frame with 1 second timeout
+    // printTwaiStatus();
+    // Serial.printf("Received frame: ID=0x%03X, Length=%d\n", rxFrame.identifier, rxFrame.data_length_code);
+
+    if (rxFrame.identifier == 0x04)
+    { // GPS Frame
+      if (rxFrame.data_length_code == 8)
+      {
+        // Parse GPS data
+        bottomLatitude = hextoDecimal(rxFrame.data[0], rxFrame.data[1],
+                                      rxFrame.data[2], rxFrame.data[3]);
+        bottomLongitude = hextoDecimal(rxFrame.data[4], rxFrame.data[5],
+                                       rxFrame.data[6], rxFrame.data[7]);
+
+        // Serial.print("GPS Coordinates - Latitude: ");
+        // Serial.print(bottomLatitude, 6);
+        // Serial.print(", Longitude: ");
+        // Serial.println(bottomLongitude, 6);
+      }
+      else if (rxFrame.data_length_code == 6)
+      {
+        for (int i = 0; i < 3; i++)
+        {
+          bottomAltitude = hextoDecimal(0, rxFrame.data[i * 2],
+                                        rxFrame.data[i * 2 + 1], 0);
+          // Serial.print("Altitude Reading ");
+          // Serial.print(i + 1);
+          // Serial.print(": ");
+          // Serial.println(String(bottomAltitude));
+        }
+      }
+      else
+      {
+        // Serial.println("Invalid frame length (expected 8)");
+      }
+    }
+    else
+    {
+      // Serial.println("Unknown frame ID");
+    }
+  }
+  else
+  {
+    // printTwaiStatus();
+    // Serial.println("No Frame read yet");
+  }
   unsigned long past_time = millis();
+
   // each pin works individually, but cannot actuate multiple at once. maybe a MSG priority issue
-  BabyStateMachine(_6DOF, Alt, GPS1);
+  BabyStateMachine(_6DOF, Alt, GPS1, bottomAltitude, bottomLatitude, bottomLongitude);
+  // command2pin("07", '2', '1');
+  // command2pin("06", '2', '1');
+  // delay(100);
+  // command2pin("07", '3', '1');
+  // command2pin("06", '3', '1');
+  // delay(100);
+  // command2pin("07", '0', '1');
+  // command2pin("06", '0', '1');
+  // delay(100);
+  // command2pin("07", '1', '1');
+  // command2pin("06", '1', '1');
+  // delay(100);
+  // // delay(500);
+  // // command2pin("01", '2', '1');
+  // // delay(500);
+  // // command2pin("01", '3', '0');
+  // // delay(1000);
+  // command2pin("07", '2', '0');
+  // command2pin("06", '2', '0');
+  // delay(100);
+  // // delay(500);
+  // command2pin("07", '3', '0');
+  // command2pin("06", '3', '0');
+  // delay(100);
+  // command2pin("07", '0', '0');
+  // command2pin("06", '0', '0');
+  // delay(100);
+  // // delay(500);
+  // command2pin("07", '1', '0');
+  // command2pin("06", '1', '0');
+  // delay(100);
+
   // double pressure = Alt.getPressure();
   // double altitude = Alt.getAltitude();
   // Serial.println("Pressure: " + String(pressure) + ", Altitude: " + String(altitude));
@@ -559,5 +896,6 @@ void loop()
   // Serial.println("Loop Time (ms): "+String(millis()-past_time)); // loop time
   // allSol();
   // printTwaiStatus();
-  delay(100);
+  // delay(100);
+  // Serial.println("End of Loop");
 }

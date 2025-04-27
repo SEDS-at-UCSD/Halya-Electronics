@@ -5,7 +5,7 @@
 #include "KalmanFilter.h"
 #include <SimpleKalmanFilter.h>
 // For SPI mode, we need a CS pin
-#define LSM_CS 39
+#define LSM_CS 38
 // For software-SPI mode we need SCK/MOSI/MISO pins
 #define LSM_SCK 37
 #define LSM_SDO 35

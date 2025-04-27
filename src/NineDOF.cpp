@@ -34,7 +34,7 @@ bool NineDOF::begin()
 {
     Serial.println("Initializing ICM20948...");
 
-    I2C_9dof.begin(36, 37); // SDA, SCL
+    I2C_9dof.begin(39, 40); // SDA, SCL
 
     if (!icm.begin_I2C(0x69, &I2C_9dof))
     {
